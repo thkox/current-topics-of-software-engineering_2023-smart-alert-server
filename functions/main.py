@@ -1,15 +1,34 @@
-# Welcome to Cloud Functions for Firebase for Python!
-# To get started, simply uncomment the below code or create your own.
-# Deploy with `firebase deploy`
+import re
+from typing import Any
 
-import json
+# [START v2imports]
+# Dependencies for callable functions.
+from firebase_functions import https_fn, options
 
-from firebase_functions import https_fn
-from firebase_admin import initialize_app
+# Dependencies for writing to Realtime Database.
+from firebase_admin import db, initialize_app
+
+# [END v2imports]
 
 initialize_app()
 
 
-@https_fn.on_request()
-def on_request_example(req: https_fn.Request) -> https_fn.Response:
-    return https_fn.Response(json.dumps({"data": {"message": "Hello world!"}}), mimetype='application/json')
+@https_fn.on_call()
+def userIsEmployee(req: https_fn.CallableRequest) -> Any:
+    """Checks if the user is Employee or not"""
+
+    try:
+        # get the user's email
+        email = req.auth.token.get("email", "")
+
+        if email.endswith('civilprotection.gr'):
+            return {'isCP': True}
+        else:
+            return {'isCP': False}
+
+    except KeyError:
+        print("Error: The key 'email' was not found in the token")
+    except TypeError:
+        print("Error: The token is not of the correct type")
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
