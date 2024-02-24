@@ -61,7 +61,17 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
             'criticalLevel': alert_form.get('criticalLevel'),
             'message': alert_form.get('message')
         }
+        # Get the current count
+        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCount/{phenomenon}/{place}")
+        counter = counter_ref.get() or 0
 
+        # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
+        counter += 1
+
+        # Update the counter in the database
+        counter_ref.set(counter)
+
+        # Store the alertForm data
         db.reference(f"alertsByPhenomenonAndLocation/{phenomenon}/{place}/{event.params['formID']}").set(essential_data_by_phenomenon_and_location)
 
     except Exception as e:
