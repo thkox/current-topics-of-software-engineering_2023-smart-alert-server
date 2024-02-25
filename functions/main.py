@@ -127,13 +127,16 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
                         counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
                         counter = counter_ref.get() or 0
                         counter = max(0, counter - 1)
-                        counter_ref.set(counter)
+                        if counter == 0:
+                            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+                        else:
+                            counter_ref.set(counter)
 
     # Update lastCleanupTimestamp
-    last_cleanup_ref = db.reference("lastCleanupTimestampOfTheDay")
+    last_cleanup_ref = db.reference("lastCleanupTimestamp")
     last_cleanup_ref.set(current_timestamp)
 
-    num_of_deleted_alerts_ref = db.reference("numOfDeletedAlertsOfTheDay")
+    num_of_deleted_alerts_ref = db.reference("lastNumOfDeletedAlerts")
     num_of_deleted_alerts_ref.set(num_of_deleted_alerts)
 
     logging.info("Cleanup completed")
