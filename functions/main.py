@@ -62,9 +62,11 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         essential_data_by_phenomenon_and_location = {
             'location': alert_form.get('location'),
             'timestamp': alert_form.get('timestamp'),
+            'imageURL': alert_form.get('imageURL'),
             'criticalLevel': alert_form.get('criticalLevel'),
             'message': alert_form.get('message')
         }
+
         # Get the current count
         counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
         counter = counter_ref.get() or 0
@@ -90,6 +92,7 @@ def handle_alert_upload(event):
 
 @https_fn.on_request()
 def hourly_cleanup_http(req: https_fn.Request) -> Any:
+    """Needs to be deployed with Cloud Scheduler: https://console.cloud.google.com/cloudscheduler"""
     logging.info("Function triggered")
 
     # Verify that the request is a POST request
@@ -105,17 +108,18 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
     phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
     logging.info(f"Found {len(phenomena)} phenomena")
 
-    count = 0
+    # Set counter for deleted alertForms
+    num_of_deleted_alerts = 0
 
     for phenomenon, places in phenomena.items():
         for place, alerts in places.items():
             for alert_id, alert_data in alerts.items():
                 if alert_data['timestamp']:
                     # Calculate if the alert is older than 24 hours.
-                    alert_timestamp = alert_data['timestamp']
-                    if current_timestamp - alert_timestamp >= 86400:
+                    alert_timestamp_seconds = alert_data['timestamp'] / 1000
+                    if current_timestamp - alert_timestamp_seconds >= 86400:
+                        num_of_deleted_alerts = num_of_deleted_alerts + 1
                         logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place}")
-                        count = count + 1
                         # Remove the alert from alertsByPhenomenonAndLocationLast24h
                         db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{alert_id}").delete()
 
@@ -126,11 +130,11 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
                         counter_ref.set(counter)
 
     # Update lastCleanupTimestamp
-    last_cleanup_ref = db.reference("lastCleanupTimestamp")
+    last_cleanup_ref = db.reference("lastCleanupTimestampOfTheDay")
     last_cleanup_ref.set(current_timestamp)
 
-    last_count_of_deleted_events = db.reference("numOfDeletedEvents")
-    last_count_of_deleted_events.set(count)
+    num_of_deleted_alerts_ref = db.reference("numOfDeletedAlertsOfTheDay")
+    num_of_deleted_alerts_ref.set(num_of_deleted_alerts)
 
     logging.info("Cleanup completed")
     return 'Cleanup completed', 200
