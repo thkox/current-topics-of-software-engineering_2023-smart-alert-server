@@ -85,7 +85,7 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         print(f"Error during processing: {e}")
 
 
-@db_fn.on_value_written(reference=r"/alertForms/{formID}", region="us-central1")
+@db_fn.on_value_written(reference=r"/alertForms/{uid}/{formID}", region="us-central1")
 def handle_alert_upload(event):
     asyncio.run(categorize_and_store_alert(event))
 
