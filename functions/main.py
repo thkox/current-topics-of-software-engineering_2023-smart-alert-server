@@ -17,7 +17,7 @@ app = initialize_app()
 
 
 @https_fn.on_call()
-def userIsEmployee(req: https_fn.CallableRequest) -> Any:
+def user_is_employee(req: https_fn.CallableRequest) -> Any:
     """Checks if the user is Employee or not"""
 
     try:
@@ -141,3 +141,36 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
 
     logging.info("Cleanup completed")
     return 'Cleanup completed', 200
+
+
+@https_fn.on_call()
+def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
+    """Deletes alerts by phenomenon and location"""
+
+    try:
+        # Get the phenomenon and location from the request
+        phenomenon = req.data.get("phenomenon", "")
+        place = req.data.get("place", "")
+
+        # Fetch all alert categories (phenomena)
+        phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+
+        # Check if the phenomenon exists
+        if phenomenon in phenomena:
+            # Check if the place exists for the phenomenon
+            if place in phenomena[phenomenon]:
+                # Delete the alerts for the phenomenon and place
+                db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}").delete()
+
+                # Decrement the counter
+                db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+
+                return {'success': True}
+            else:
+                return {'success': False, 'message': 'Place not found'}
+        else:
+            return {'success': False, 'message': 'Phenomenon not found'}
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+        return {'success': False, 'message': 'An unexpected error occurred'}
