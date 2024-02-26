@@ -58,10 +58,16 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         place = await get_location_name(alert_form["location"]["latitude"], alert_form["location"]["longitude"])
         phenomenon = alert_form["criticalWeatherPhenomenon"]
 
+        # Convert timestamp to "HH:SS" time Athens
+        timestamp = datetime.datetime.fromtimestamp(alert_form["timestamp"] / 1000)
+        timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+        timestamp = timestamp + datetime.timedelta(hours=2) # Athens timezone
+        timestamp = timestamp.astimezone().strftime("%H:%M")
+
         # Store critical data in the database
         essential_data_by_phenomenon_and_location = {
             'location': alert_form.get('location'),
-            'timestamp': alert_form.get('timestamp'),
+            'timestamp': timestamp,
             'imageURL': alert_form.get('imageURL'),
             'criticalLevel': alert_form.get('criticalLevel'),
             'message': alert_form.get('message')
