@@ -162,10 +162,54 @@ def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
                 # Delete the alerts for the phenomenon and place
                 db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}").delete()
 
-                # Decrement the counter
+                # Delete the counter
                 db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
 
                 return {'success': True}
+            else:
+                return {'success': False, 'message': 'Place not found'}
+        else:
+            return {'success': False, 'message': 'Phenomenon not found'}
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+        return {'success': False, 'message': 'An unexpected error occurred'}
+
+
+@https_fn.on_call()
+def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> Any:
+    """Deletes a specific alert by phenomenon and location"""
+
+    try:
+        # Get the phenomenon, location, and alertID from the request
+        phenomenon = req.data.get("phenomenon", "")
+        place = req.data.get("place", "")
+        alert_id = req.data.get("alertID", "")
+
+        # Fetch all alert categories (phenomena)
+        phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+
+        # Check if the phenomenon exists
+        if phenomenon in phenomena:
+            # Check if the place exists for the phenomenon
+            if place in phenomena[phenomenon]:
+                # Check if the alertID exists for the phenomenon and place
+                if alert_id in phenomena[phenomenon][place]:
+                    # Delete the specific alert for the phenomenon, place, and alertID
+                    db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{alert_id}").delete()
+
+                    # Decrement the counter
+                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+                    counter = counter_ref.get() or 0
+                    counter = max(0, counter - 1)
+                    if counter == 0:
+                        db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+                    else:
+                        counter_ref.set(counter)
+
+                    return {'success': True}
+                else:
+                    return {'success': False, 'message': 'Alert not found'}
             else:
                 return {'success': False, 'message': 'Place not found'}
         else:
