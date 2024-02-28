@@ -4,6 +4,7 @@ import datetime  # For timestamp comparison
 
 from flask import abort
 import logging
+import calendar
 
 # Dependencies for callable functions.
 from firebase_functions import https_fn, options, db_fn, scheduler_fn
@@ -111,7 +112,7 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
     current_timestamp = now.timestamp()
 
     # Fetch all alert categories (phenomena)
-    phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+    phenomena = db.reference("alertsByPhenomenonAndLocationLast24h/uid/").get() or {}
     logging.info(f"Found {len(phenomena)} phenomena")
 
     # Set counter for deleted alertForms
@@ -233,7 +234,7 @@ def handle_notification_upload(event):
     # Convert timestamp to datetime
     timestamp = datetime.datetime.fromtimestamp(notification["timestamp"] / 1000)
     year = timestamp.year
-    month = timestamp.month
+    month = calendar.month_name[timestamp.month]  # Get the month name
     phenomenon = notification["criticalWeatherPhenomenon"]
 
     # Update sumOfReports
