@@ -61,7 +61,7 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         # Convert timestamp to "HH:SS" time Athens
         timestamp = datetime.datetime.fromtimestamp(alert_form["timestamp"] / 1000)
         timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
-        timestamp = timestamp + datetime.timedelta(hours=2) # Athens timezone
+        timestamp = timestamp + datetime.timedelta(hours=2)  # Athens timezone
         timestamp = timestamp.astimezone().strftime("%H:%M")
 
         # Store critical data in the database
@@ -224,3 +224,28 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
     except Exception as e:
         print(f"An unexpected error occurred: {str(e)}")
         return {'success': False, 'message': 'An unexpected error occurred'}
+
+
+@db_fn.on_value_written(reference=r"/notificationsToCitizens/{notificationID}", region="us-central1")
+def handle_notification_upload(event):
+    notification = event.data.after  # Get the data after the change
+
+    # Convert timestamp to datetime
+    timestamp = datetime.datetime.fromtimestamp(notification["timestamp"] / 1000)
+    year = timestamp.year
+    month = timestamp.month
+    phenomenon = notification["criticalWeatherPhenomenon"]
+
+    # Update sumOfReports
+    counter_ref = db.reference(f"statisticsPerYear/{year}/sumOfReports/{phenomenon}")
+    counter = counter_ref.get() or 0
+    counter += 1
+    counter_ref.set(counter)
+
+    # Update sumPerMonth
+    counter_ref = db.reference(f"statisticsPerYear/{year}/sumPerMonth/{month}/{phenomenon}")
+    counter = counter_ref.get() or 0
+    counter += 1
+    counter_ref.set(counter)
+
+
