@@ -60,15 +60,16 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         phenomenon = alert_form["criticalWeatherPhenomenon"]
 
         # Convert timestamp to "HH:SS" time Athens
-        timestamp = datetime.datetime.fromtimestamp(alert_form["timestamp"] / 1000)
-        timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
-        timestamp = timestamp + datetime.timedelta(hours=2)  # Athens timezone
-        timestamp = timestamp.astimezone().strftime("%H:%M")
+        time = datetime.datetime.fromtimestamp(alert_form["timestamp"] / 1000)
+        time = time.replace(tzinfo=datetime.timezone.utc)
+        time = time + datetime.timedelta(hours=2)  # Athens timezone
+        time = time.astimezone().strftime("%H:%M")
 
         # Store critical data in the database
         essential_data_by_phenomenon_and_location = {
             'location': alert_form.get('location'),
-            'timestamp': timestamp,
+            'timestamp': alert_form.get('timestamp'),
+            'time': time,
             'imageURL': alert_form.get('imageURL'),
             'criticalLevel': alert_form.get('criticalLevel'),
             'message': alert_form.get('message')
@@ -112,7 +113,7 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
     current_timestamp = now.timestamp()
 
     # Fetch all alert categories (phenomena)
-    phenomena = db.reference("alertsByPhenomenonAndLocationLast24h/uid/").get() or {}
+    phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
     logging.info(f"Found {len(phenomena)} phenomena")
 
     # Set counter for deleted alertForms
