@@ -131,19 +131,20 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         place_exists = db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}").get()
 
         if place_exists:
-            # Save the alert first
+            # Save the alert
             db.reference(
                 f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
                 essential_data_by_phenomenon_and_location)
 
         else:
-            # Save the alert first
+            # Save the alert
             db.reference(
                 f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
                 essential_data_by_phenomenon_and_location)
 
             # Save the name of the place
             db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/name").set(place)
+            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}/name").set(place)
 
             # Save the bounds
             db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/bounds").set(bounds)
