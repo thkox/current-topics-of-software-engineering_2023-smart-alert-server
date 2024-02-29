@@ -13,6 +13,7 @@ from firebase_functions import https_fn, options, db_fn, scheduler_fn
 from firebase_admin import db, initialize_app
 import asyncio
 import requests
+import hashlib
 
 app = initialize_app()
 
@@ -38,14 +39,59 @@ def user_is_employee(req: https_fn.CallableRequest) -> Any:
         print(f"An unexpected error occurred: {str(e)}")
 
 
-async def get_location_name(latitude, longitude):
+def get_location_name_and_bounds(latitude, longitude):
+    """Retrieves location name and bounds from Google Maps Geocoding API.
+
+    Args:
+        latitude (float): Latitude coordinate.
+        longitude (float): Longitude coordinate.
+
+    Returns:
+        tuple: A tuple containing:
+            - location_name (str):  The approximate location name.
+            - bounds (dict): A dictionary representing the bounding box:
+                * 'northeast': {'lat': ..., 'lng': ...}
+                * 'southwest': {'lat': ..., 'lng': ...}
+
+    Raises:
+        ValueError: If the geocoding fails or if the response lacks necessary data.
+    """
+
+    api_key = "AIzaSyBM31FS8qWSsNewQM5NGzpYm7pdr8q5azY"  # Replace with your actual API key
+
     response = requests.get(
-        f"https://maps.googleapis.com/maps/api/geocode/json?latlng={latitude},{longitude}&key=AIzaSyBM31FS8qWSsNewQM5NGzpYm7pdr8q5azY"
+        f"https://maps.googleapis.com/maps/api/geocode/json?latlng={latitude},{longitude}&key={api_key}"
     )
+
     if response.status_code == 200:
-        return response.json()["results"][0]["address_components"][3]["long_name"]
+        data = response.json()
+
+        if data['status'] == 'OK':
+            # Prioritize extracting neighborhood or locality if possible
+            for component in data["results"][0]["address_components"]:
+                if 'neighborhood' in component['types'] or 'locality' in component['types']:
+                    location_name = component['long_name']
+                    break
+            else:  # Fallback to third component if no specific neighborhood/locality
+                location_name = data["results"][0]["address_components"][2]["long_name"]
+
+            geometry = data["results"][0]["geometry"]
+            bounds = geometry.get("bounds") or geometry.get("viewport")
+
+            if bounds:
+                return location_name, bounds
+            else:
+                raise ValueError("Geocoding successful, but bounds/viewport not found")
+        else:
+            raise ValueError(f"Geocoding failed: API status - {data['status']}")
     else:
-        raise ValueError("Geocoding failed")
+        raise ValueError(f"Geocoding request failed: HTTP status - {response.status_code}")
+
+
+def get_short_place_id(place, bounds):
+    key_string = f"{place}_{bounds['northeast']['lat']}_{bounds['northeast']['lng']}_{bounds['southwest']['lat']}_{bounds['southwest']['lng']}"
+    hash_object = hashlib.sha256(key_string.encode())  # Or a shorter hash like md5 if collisions are not a big concern
+    return hash_object.hexdigest()[:16]  # Take first 16 characters of the hash
 
 
 async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
@@ -56,7 +102,11 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         return  # Or raise an exception
 
     try:
-        place = await get_location_name(alert_form["location"]["latitude"], alert_form["location"]["longitude"])
+        place, bounds = get_location_name_and_bounds(alert_form["location"]["latitude"],
+                                                     alert_form["location"]["longitude"])
+
+        place_id = get_short_place_id(place, bounds)
+
         phenomenon = alert_form["criticalWeatherPhenomenon"]
 
         # Convert timestamp to "HH:SS" time Athens
@@ -75,8 +125,29 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
             'message': alert_form.get('message')
         }
 
+        # ----------------- Store the alertForm data ----------------- #
+
+        # Check if the place exists in the database for the phenomenon
+        place_exists = db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}").get()
+
+        if place_exists:
+            # Save the alert first
+            db.reference(
+                f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
+                essential_data_by_phenomenon_and_location)
+
+        else:
+            # Save the alert first
+            db.reference(
+                f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
+                essential_data_by_phenomenon_and_location)
+
+            # Save the bounds
+            db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/bounds").set(bounds)
+
+        # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
         # Get the current count
-        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}/counter")
         counter = counter_ref.get() or 0
 
         # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
@@ -84,10 +155,6 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
 
         # Update the counter in the database
         counter_ref.set(counter)
-
-        # Store the alertForm data
-        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{event.params['formID']}").set(
-            essential_data_by_phenomenon_and_location)
 
     except Exception as e:
         print(f"Error during processing: {e}")
@@ -129,10 +196,10 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
                         num_of_deleted_alerts = num_of_deleted_alerts + 1
                         logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place}")
                         # Remove the alert from alertsByPhenomenonAndLocationLast24h
-                        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{alert_id}").delete()
+                        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/alertForms/{alert_id}").delete()
 
                         # Decrement the counter
-                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}/counter")
                         counter = counter_ref.get() or 0
                         counter = max(0, counter - 1)
                         if counter == 0:
@@ -249,5 +316,3 @@ def handle_notification_upload(event):
     counter = counter_ref.get() or 0
     counter += 1
     counter_ref.set(counter)
-
-
