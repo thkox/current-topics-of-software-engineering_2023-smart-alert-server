@@ -167,54 +167,53 @@ def handle_alert_upload(event):
 
 @https_fn.on_request()
 def hourly_cleanup_http(req: https_fn.Request) -> Any:
-    """Needs to be deployed with Cloud Scheduler: https://console.cloud.google.com/cloudscheduler"""
-    logging.info("Function triggered")
+    """Triggered by Cloud Scheduler to delete alerts older than 24 hours.
+    """
+    logging.info("Cleanup function triggered")
 
-    # Verify that the request is a POST request
     if req.method != 'POST':
         logging.error("Function received a non-POST request")
         return abort(405)
 
-    # Placeholder for your updated cleanup logic:
     now = datetime.datetime.now()
-    current_timestamp = now.timestamp()
+    current_timestamp = now.timestamp() * 1000  # Timestamp in milliseconds for Firebase consistency
 
     # Fetch all alert categories (phenomena)
     phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
     logging.info(f"Found {len(phenomena)} phenomena")
 
-    # Set counter for deleted alertForms
     num_of_deleted_alerts = 0
 
     for phenomenon, places in phenomena.items():
-        for place, alerts in places.items():
-            for alert_id, alert_data in alerts.items():
-                if alert_data['timestamp']:
-                    # Calculate if the alert is older than 24 hours.
-                    alert_timestamp_seconds = alert_data['timestamp'] / 1000
-                    if current_timestamp - alert_timestamp_seconds >= 86400:
-                        num_of_deleted_alerts = num_of_deleted_alerts + 1
-                        logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place}")
-                        # Remove the alert from alertsByPhenomenonAndLocationLast24h
-                        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/alertForms/{alert_id}").delete()
+        for place_id, place_data in places.items():
+            if 'alertForms' in place_data:  # Check if alertForms exist
 
-                        # Decrement the counter
-                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}/counter")
+                # Iterate through alertForms for deletion
+                for alert_id, alert_data in place_data['alertForms'].items():
+                    if alert_data['timestamp'] < current_timestamp - 86400000:  # Check if older than 24 hours
+                        num_of_deleted_alerts += 1
+                        logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place_id}")
+                        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
+
+                        # Decrement counter
+                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}/counter")
                         counter = counter_ref.get() or 0
-                        counter = max(0, counter - 1)
+                        counter = max(0, counter - 1)  # Ensure counter doesn't go negative
+                        counter_ref.set(counter)  # Update the counter
+
+                        # Delete place in the phenomenon if no more alerts
+                        if not place_data.get('alertForms'):  # Check if all alerts are deleted
+                            db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}").delete()
+
+                        # Delete the counter
                         if counter == 0:
-                            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
-                        else:
-                            counter_ref.set(counter)
+                            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}").delete()
 
-    # Update lastCleanupTimestamp
-    last_cleanup_ref = db.reference("lastCleanupTimestamp")
-    last_cleanup_ref.set(current_timestamp)
+    # Update timestamps
+    db.reference("lastCleanupTimestamp").set(current_timestamp)
+    db.reference("lastNumOfDeletedAlerts").set(num_of_deleted_alerts)
 
-    num_of_deleted_alerts_ref = db.reference("lastNumOfDeletedAlerts")
-    num_of_deleted_alerts_ref.set(num_of_deleted_alerts)
-
-    logging.info("Cleanup completed")
+    logging.info(f"Cleanup completed. Deleted {num_of_deleted_alerts} alerts.")
     return 'Cleanup completed', 200
 
 
