@@ -142,6 +142,9 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
                 f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
                 essential_data_by_phenomenon_and_location)
 
+            # Save the name of the place
+            db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/name").set(place)
+
             # Save the bounds
             db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/bounds").set(bounds)
 
@@ -167,8 +170,8 @@ def handle_alert_upload(event):
 
 @https_fn.on_request()
 def hourly_cleanup_http(req: https_fn.Request) -> Any:
-    """Triggered by Cloud Scheduler to delete alerts older than 24 hours.
-    """
+    """Triggered by Cloud Scheduler to delete alerts older than 24 hours."""
+
     logging.info("Cleanup function triggered")
 
     if req.method != 'POST':
