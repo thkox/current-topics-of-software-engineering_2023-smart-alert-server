@@ -1,5 +1,6 @@
 from typing import Any
 import datetime  # For timestamp comparison
+import json
 
 from flask import abort
 import logging
@@ -324,29 +325,40 @@ def handle_notification_upload(event):
 
 @db_fn.on_value_written(reference=r"/notificationsToCitizens/{notificationID}", region="us-central1")
 def send_notification_to_users(event):
-    # Get the notification details
-    notification = event.data.after
-    phenomenon = notification["criticalWeatherPhenomenon"]
-    location_name = notification.get("locationName", "Location Unknown")  # Get location name if it exists
-    critical_level = notification["criticalLevel"]
+    try:
+        # Get the notification details
+        notification = event.data.after
+        phenomenon = notification["criticalWeatherPhenomenon"]
+        location_name = notification.get("locationName", "Location Unknown")  # Get location name if it exists
+        critical_level = notification["criticalLevel"]
+        location_bounds = notification["locationBounds"]  # Get location bounds
 
-    # Construct the notification message
-    title = f"Critical Weather Alert: {phenomenon.capitalize()}"
-    body = f"Level: {critical_level}, Location: {location_name}"
+        # Construct the notification message
+        title = f"Critical Weather Alert: {phenomenon.capitalize()}"
+        body = f"Level: {critical_level}, Location: {location_name}"
 
-    # Retrieve user tokens (Consider storing user tokens in a more optimized way for real-world scenarios)
-    user_tokens = db.reference("tokens").get() or {}
-    user_tokens = list(user_tokens.values())
+        # Additional data to include in the notification payload
+        additional_data = {
+            "locationBounds": json.dumps(location_bounds)  # Convert the dictionary to a JSON-formatted string
+        }
 
-    # Prepare the messages for Firebase Cloud Messaging
-    messages = [
-        messaging.Message(
-            notification=messaging.Notification(title=title, body=body),
-            token=token
-        )
-        for token in user_tokens
-    ]
+        # Retrieve user tokens (Consider storing user tokens in a more optimized way for real-world scenarios)
+        user_tokens = db.reference("tokens").get() or {}
+        user_tokens = list(user_tokens.values())
 
-    # Send the notifications to all users
-    response = messaging.send_all(messages)
-    print(f'{response.success_count} messages were sent successfully')
+        # Prepare the messages for Firebase Cloud Messaging
+        messages = [
+            messaging.Message(
+                notification=messaging.Notification(title=title, body=body),
+                token=token,
+                data=additional_data  # Include additional data in the notification payload
+            )
+            for token in user_tokens
+        ]
+
+        # Send the notifications to all users
+        response = messaging.send_all(messages)
+        print(f'{response.success_count} messages were sent successfully')
+
+    except Exception as e:  # Add specific error handling as needed
+        print(f'Error sending notifications: {e}')
