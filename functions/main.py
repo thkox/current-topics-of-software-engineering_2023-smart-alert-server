@@ -75,7 +75,7 @@ def get_location_name_and_bounds(latitude, longitude):
             else:  # Fallback to third component if no specific neighborhood/locality
                 location_name = data["results"][0]["address_components"][2]["long_name"]
 
-            geometry = data["results"][0]["geometry"]
+            geometry = data["results"][7]["geometry"]
             bounds = geometry.get("bounds") or geometry.get("viewport")
 
             if bounds:
