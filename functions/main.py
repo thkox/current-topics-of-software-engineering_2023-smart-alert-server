@@ -128,30 +128,30 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         # ----------------- Store the alertForm data ----------------- #
 
         # Check if the place exists in the database for the phenomenon
-        place_exists = db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}").get()
+        place_exists = db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}").get()
 
         if place_exists:
             # Save the alert
             db.reference(
-                f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
+                f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
                 essential_data_by_phenomenon_and_location)
 
         else:
             # Save the alert
             db.reference(
-                f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
+                f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
                 essential_data_by_phenomenon_and_location)
 
             # Save the name of the place
-            db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/name").set(place)
-            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}/name").set(place)
+            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/name").set(place)
+            db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/name").set(place)
 
             # Save the bounds
-            db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/bounds").set(bounds)
+            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/bounds").set(bounds)
 
         # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
         # Get the current count
-        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}/counter")
+        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
         counter = counter_ref.get() or 0
 
         # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
@@ -183,7 +183,7 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
     current_timestamp = now.timestamp() * 1000  # Timestamp in milliseconds for Firebase consistency
 
     # Fetch all alert categories (phenomena)
-    phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+    phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
     logging.info(f"Found {len(phenomena)} phenomena")
 
     num_of_deleted_alerts = 0
@@ -197,21 +197,21 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
                     if alert_data['timestamp'] < current_timestamp - 86400000:  # Check if older than 24 hours
                         num_of_deleted_alerts += 1
                         logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place_id}")
-                        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
+                        db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
 
                         # Decrement counter
-                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}/counter")
+                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
                         counter = counter_ref.get() or 0
                         counter = max(0, counter - 1)  # Ensure counter doesn't go negative
                         counter_ref.set(counter)  # Update the counter
 
                         # Delete place in the phenomenon if no more alerts
                         if not place_data.get('alertForms'):  # Check if all alerts are deleted
-                            db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place_id}").delete()
+                            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}").delete()
 
                         # Delete the counter
                         if counter == 0:
-                            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place_id}").delete()
+                            db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}").delete()
 
     # Update timestamps
     db.reference("lastCleanupTimestamp").set(current_timestamp)
@@ -231,17 +231,17 @@ def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
         place = req.data.get("place", "")
 
         # Fetch all alert categories (phenomena)
-        phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+        phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
 
         # Check if the phenomenon exists
         if phenomenon in phenomena:
             # Check if the place exists for the phenomenon
             if place in phenomena[phenomenon]:
                 # Delete the alerts for the phenomenon and place
-                db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}").delete()
+                db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place}").delete()
 
                 # Delete the counter
-                db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+                db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}").delete()
 
                 return {'success': True}
             else:
@@ -265,7 +265,7 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
         alert_id = req.data.get("alertID", "")
 
         # Fetch all alert categories (phenomena)
-        phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+        phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
 
         # Check if the phenomenon exists
         if phenomenon in phenomena:
@@ -274,14 +274,14 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
                 # Check if the alertID exists for the phenomenon and place
                 if alert_id in phenomena[phenomenon][place]:
                     # Delete the specific alert for the phenomenon, place, and alertID
-                    db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{alert_id}").delete()
+                    db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place}/{alert_id}").delete()
 
                     # Decrement the counter
-                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}")
                     counter = counter_ref.get() or 0
                     counter = max(0, counter - 1)
                     if counter == 0:
-                        db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+                        db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}").delete()
                     else:
                         counter_ref.set(counter)
 
