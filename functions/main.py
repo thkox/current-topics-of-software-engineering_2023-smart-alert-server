@@ -194,7 +194,7 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
 
                 # Iterate through alertForms for deletion
                 for alert_id, alert_data in place_data['alertForms'].items():
-                    if alert_data['timestamp'] < current_timestamp - 86400000:  # Check if older than 24 hours
+                    if alert_data['timestamp'] < current_timestamp - 21600000:  # Check if older than 24 hours
                         num_of_deleted_alerts += 1
                         logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place_id}")
                         db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
