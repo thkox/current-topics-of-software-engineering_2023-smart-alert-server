@@ -1,17 +1,19 @@
-import re
 from typing import Any
 import datetime  # For timestamp comparison
+import json
 
 from flask import abort
 import logging
+import calendar
 
 # Dependencies for callable functions.
 from firebase_functions import https_fn, options, db_fn, scheduler_fn
 
 # Dependencies for writing to Realtime Database and Cloud Scheduler.
-from firebase_admin import db, initialize_app
+from firebase_admin import db, initialize_app, messaging
 import asyncio
 import requests
+import hashlib
 
 app = initialize_app()
 
@@ -37,14 +39,59 @@ def user_is_employee(req: https_fn.CallableRequest) -> Any:
         print(f"An unexpected error occurred: {str(e)}")
 
 
-async def get_location_name(latitude, longitude):
+def get_location_name_and_bounds(latitude, longitude):
+    """Retrieves location name and bounds from Google Maps Geocoding API.
+
+    Args:
+        latitude (float): Latitude coordinate.
+        longitude (float): Longitude coordinate.
+
+    Returns:
+        tuple: A tuple containing:
+            - location_name (str):  The approximate location name.
+            - bounds (dict): A dictionary representing the bounding box:
+                * 'northeast': {'lat': ..., 'lng': ...}
+                * 'southwest': {'lat': ..., 'lng': ...}
+
+    Raises:
+        ValueError: If the geocoding fails or if the response lacks necessary data.
+    """
+
+    api_key = "AIzaSyBM31FS8qWSsNewQM5NGzpYm7pdr8q5azY"  # Replace with your actual API key
+
     response = requests.get(
-        f"https://maps.googleapis.com/maps/api/geocode/json?latlng={latitude},{longitude}&key=AIzaSyBM31FS8qWSsNewQM5NGzpYm7pdr8q5azY"
+        f"https://maps.googleapis.com/maps/api/geocode/json?latlng={latitude},{longitude}&key={api_key}"
     )
+
     if response.status_code == 200:
-        return response.json()["results"][0]["address_components"][3]["long_name"]
+        data = response.json()
+
+        if data['status'] == 'OK':
+            # Prioritize extracting neighborhood or locality if possible
+            for component in data["results"][0]["address_components"]:
+                if 'neighborhood' in component['types'] or 'locality' in component['types']:
+                    location_name = component['long_name']
+                    break
+            else:  # Fallback to third component if no specific neighborhood/locality
+                location_name = data["results"][0]["address_components"][2]["long_name"]
+
+            geometry = data["results"][9]["geometry"]
+            bounds = geometry.get("bounds") or geometry.get("viewport")
+
+            if bounds:
+                return location_name, bounds
+            else:
+                raise ValueError("Geocoding successful, but bounds/viewport not found")
+        else:
+            raise ValueError(f"Geocoding failed: API status - {data['status']}")
     else:
-        raise ValueError("Geocoding failed")
+        raise ValueError(f"Geocoding request failed: HTTP status - {response.status_code}")
+
+
+def get_short_place_id(place, bounds):
+    key_string = f"{place}_{bounds['northeast']['lat']}_{bounds['northeast']['lng']}_{bounds['southwest']['lat']}_{bounds['southwest']['lng']}"
+    hash_object = hashlib.sha256(key_string.encode())  # Or a shorter hash like md5 if collisions are not a big concern
+    return hash_object.hexdigest()[:16]  # Take first 16 characters of the hash
 
 
 async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
@@ -55,26 +102,56 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
         return  # Or raise an exception
 
     try:
-        place = await get_location_name(alert_form["location"]["latitude"], alert_form["location"]["longitude"])
+        place, bounds = get_location_name_and_bounds(alert_form["location"]["latitude"],
+                                                     alert_form["location"]["longitude"])
+
+        place_id = get_short_place_id(place, bounds)
+
         phenomenon = alert_form["criticalWeatherPhenomenon"]
 
         # Convert timestamp to "HH:SS" time Athens
-        timestamp = datetime.datetime.fromtimestamp(alert_form["timestamp"] / 1000)
-        timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
-        timestamp = timestamp + datetime.timedelta(hours=2) # Athens timezone
-        timestamp = timestamp.astimezone().strftime("%H:%M")
+        time = datetime.datetime.fromtimestamp(alert_form["timestamp"] / 1000)
+        time = time.replace(tzinfo=datetime.timezone.utc)
+        time = time + datetime.timedelta(hours=2)  # Athens timezone
+        time = time.astimezone().strftime("%H:%M")
 
         # Store critical data in the database
         essential_data_by_phenomenon_and_location = {
             'location': alert_form.get('location'),
-            'timestamp': timestamp,
+            'timestamp': alert_form.get('timestamp'),
+            'time': time,
             'imageURL': alert_form.get('imageURL'),
             'criticalLevel': alert_form.get('criticalLevel'),
             'message': alert_form.get('message')
         }
 
+        # ----------------- Store the alertForm data ----------------- #
+
+        # Check if the place exists in the database for the phenomenon
+        place_exists = db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}").get()
+
+        if place_exists:
+            # Save the alert
+            db.reference(
+                f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
+                essential_data_by_phenomenon_and_location)
+
+        else:
+            # Save the alert
+            db.reference(
+                f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{event.params['formID']}").set(
+                essential_data_by_phenomenon_and_location)
+
+            # Save the name of the place
+            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/name").set(place)
+            db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/name").set(place)
+
+            # Save the bounds
+            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/bounds").set(bounds)
+
+        # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
         # Get the current count
-        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
         counter = counter_ref.get() or 0
 
         # Increment the counter when a new alertForm per Critical Weather Phenomenon per Place is added
@@ -82,10 +159,6 @@ async def categorize_and_store_alert(event: db_fn.Event[db_fn.Change]):
 
         # Update the counter in the database
         counter_ref.set(counter)
-
-        # Store the alertForm data
-        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{event.params['formID']}").set(
-            essential_data_by_phenomenon_and_location)
 
     except Exception as e:
         print(f"Error during processing: {e}")
@@ -98,54 +171,55 @@ def handle_alert_upload(event):
 
 @https_fn.on_request()
 def hourly_cleanup_http(req: https_fn.Request) -> Any:
-    """Needs to be deployed with Cloud Scheduler: https://console.cloud.google.com/cloudscheduler"""
-    logging.info("Function triggered")
+    """Triggered by Cloud Scheduler to delete alerts older than 24 hours."""
 
-    # Verify that the request is a POST request
+    logging.info("Cleanup function triggered")
+
     if req.method != 'POST':
         logging.error("Function received a non-POST request")
         return abort(405)
 
-    # Placeholder for your updated cleanup logic:
     now = datetime.datetime.now()
-    current_timestamp = now.timestamp()
+    current_timestamp = now.timestamp() * 1000  # Timestamp in milliseconds for Firebase consistency
 
     # Fetch all alert categories (phenomena)
-    phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+    phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
     logging.info(f"Found {len(phenomena)} phenomena")
 
-    # Set counter for deleted alertForms
     num_of_deleted_alerts = 0
 
     for phenomenon, places in phenomena.items():
-        for place, alerts in places.items():
-            for alert_id, alert_data in alerts.items():
-                if alert_data['timestamp']:
-                    # Calculate if the alert is older than 24 hours.
-                    alert_timestamp_seconds = alert_data['timestamp'] / 1000
-                    if current_timestamp - alert_timestamp_seconds >= 86400:
-                        num_of_deleted_alerts = num_of_deleted_alerts + 1
-                        logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place}")
-                        # Remove the alert from alertsByPhenomenonAndLocationLast24h
-                        db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{alert_id}").delete()
+        for place_id, place_data in places.items():
+            if 'alertForms' in place_data:  # Check if alertForms exist
 
-                        # Decrement the counter
-                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+                # Iterate through alertForms for deletion
+                for alert_id, alert_data in place_data['alertForms'].items():
+                    if alert_data['timestamp'] < current_timestamp - 21600000:  # Check if older than 24 hours
+                        num_of_deleted_alerts += 1
+                        logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place_id}")
+                        db.reference(
+                            f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
+
+                        # Decrement counter
+                        counter_ref = db.reference(
+                            f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
                         counter = counter_ref.get() or 0
-                        counter = max(0, counter - 1)
+                        counter = max(0, counter - 1)  # Ensure counter doesn't go negative
+                        counter_ref.set(counter)  # Update the counter
+
+                        # Delete place in the phenomenon if no more alerts
+                        if not place_data.get('alertForms'):  # Check if all alerts are deleted
+                            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}").delete()
+
+                        # Delete the counter
                         if counter == 0:
-                            db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
-                        else:
-                            counter_ref.set(counter)
+                            db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}").delete()
 
-    # Update lastCleanupTimestamp
-    last_cleanup_ref = db.reference("lastCleanupTimestamp")
-    last_cleanup_ref.set(current_timestamp)
+    # Update timestamps
+    db.reference("lastCleanupTimestamp").set(current_timestamp)
+    db.reference("lastNumOfDeletedAlerts").set(num_of_deleted_alerts)
 
-    num_of_deleted_alerts_ref = db.reference("lastNumOfDeletedAlerts")
-    num_of_deleted_alerts_ref.set(num_of_deleted_alerts)
-
-    logging.info("Cleanup completed")
+    logging.info(f"Cleanup completed. Deleted {num_of_deleted_alerts} alerts.")
     return 'Cleanup completed', 200
 
 
@@ -159,17 +233,17 @@ def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
         place = req.data.get("place", "")
 
         # Fetch all alert categories (phenomena)
-        phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+        phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
 
         # Check if the phenomenon exists
         if phenomenon in phenomena:
             # Check if the place exists for the phenomenon
             if place in phenomena[phenomenon]:
                 # Delete the alerts for the phenomenon and place
-                db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}").delete()
+                db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place}").delete()
 
                 # Delete the counter
-                db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+                db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}").delete()
 
                 return {'success': True}
             else:
@@ -193,7 +267,7 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
         alert_id = req.data.get("alertID", "")
 
         # Fetch all alert categories (phenomena)
-        phenomena = db.reference("alertsByPhenomenonAndLocationLast24h").get() or {}
+        phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
 
         # Check if the phenomenon exists
         if phenomenon in phenomena:
@@ -202,14 +276,14 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
                 # Check if the alertID exists for the phenomenon and place
                 if alert_id in phenomena[phenomenon][place]:
                     # Delete the specific alert for the phenomenon, place, and alertID
-                    db.reference(f"alertsByPhenomenonAndLocationLast24h/{phenomenon}/{place}/{alert_id}").delete()
+                    db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place}/{alert_id}").delete()
 
                     # Decrement the counter
-                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}")
+                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}")
                     counter = counter_ref.get() or 0
                     counter = max(0, counter - 1)
                     if counter == 0:
-                        db.reference(f"alertsByPhenomenonAndLocationCountLast24h/{phenomenon}/{place}").delete()
+                        db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}").delete()
                     else:
                         counter_ref.set(counter)
 
@@ -224,3 +298,67 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
     except Exception as e:
         print(f"An unexpected error occurred: {str(e)}")
         return {'success': False, 'message': 'An unexpected error occurred'}
+
+
+@db_fn.on_value_written(reference=r"/notificationsToCitizens/{notificationID}", region="us-central1")
+def handle_notification_upload(event):
+    notification = event.data.after  # Get the data after the change
+
+    # Convert timestamp to datetime
+    timestamp = datetime.datetime.fromtimestamp(notification["timestamp"] / 1000)
+    year = timestamp.year
+    month = calendar.month_name[timestamp.month]  # Get the month name
+    phenomenon = notification["criticalWeatherPhenomenon"]
+
+    # Update sumOfReports
+    counter_ref = db.reference(f"statisticsPerYear/{year}/sumOfReports/{phenomenon}")
+    counter = counter_ref.get() or 0
+    counter += 1
+    counter_ref.set(counter)
+
+    # Update sumPerMonth
+    counter_ref = db.reference(f"statisticsPerYear/{year}/sumPerMonth/{month}/{phenomenon}")
+    counter = counter_ref.get() or 0
+    counter += 1
+    counter_ref.set(counter)
+
+
+@db_fn.on_value_written(reference=r"/notificationsToCitizens/{notificationID}", region="us-central1")
+def send_notification_to_users(event):
+    try:
+        # Get the notification details
+        notification = event.data.after
+        phenomenon = notification["criticalWeatherPhenomenon"]
+        location_name = notification.get("locationName", "Location Unknown")  # Get location name if it exists
+        critical_level = notification["criticalLevel"]
+        location_bounds = notification["locationBounds"]  # Get location bounds
+
+        # Construct the notification message
+        title = f"Critical Weather Alert: {phenomenon.capitalize()}"
+        body = f"Level: {critical_level}, Location: {location_name}"
+
+        # Additional data to include in the notification payload
+        additional_data = {
+            "locationBounds": json.dumps(location_bounds)  # Convert the dictionary to a JSON-formatted string
+        }
+
+        # Retrieve user tokens (Consider storing user tokens in a more optimized way for real-world scenarios)
+        user_tokens = db.reference("tokens").get() or {}
+        user_tokens = list(user_tokens.values())
+
+        # Prepare the messages for Firebase Cloud Messaging
+        messages = [
+            messaging.Message(
+                notification=messaging.Notification(title=title, body=body),
+                token=token,
+                data=additional_data  # Include additional data in the notification payload
+            )
+            for token in user_tokens
+        ]
+
+        # Send the notifications to all users
+        response = messaging.send_all(messages)
+        print(f'{response.success_count} messages were sent successfully')
+
+    except Exception as e:  # Add specific error handling as needed
+        print(f'Error sending notifications: {e}')
