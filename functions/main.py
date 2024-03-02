@@ -9,7 +9,7 @@ import calendar
 from firebase_functions import https_fn, options, db_fn, scheduler_fn
 
 # Dependencies for writing to Realtime Database and Cloud Scheduler.
-from firebase_admin import db, initialize_app
+from firebase_admin import db, initialize_app, messaging
 import asyncio
 import requests
 import hashlib
@@ -196,10 +196,12 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
                     if alert_data['timestamp'] < current_timestamp - 21600000:  # Check if older than 24 hours
                         num_of_deleted_alerts += 1
                         logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place_id}")
-                        db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
+                        db.reference(
+                            f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
 
                         # Decrement counter
-                        counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
+                        counter_ref = db.reference(
+                            f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
                         counter = counter_ref.get() or 0
                         counter = max(0, counter - 1)  # Ensure counter doesn't go negative
                         counter_ref.set(counter)  # Update the counter
@@ -318,3 +320,33 @@ def handle_notification_upload(event):
     counter = counter_ref.get() or 0
     counter += 1
     counter_ref.set(counter)
+
+
+@db_fn.on_value_written(reference=r"/notificationsToCitizens/{notificationID}", region="us-central1")
+def send_notification_to_users(event):
+    # Get the notification details
+    notification = event.data.after
+    phenomenon = notification["criticalWeatherPhenomenon"]
+    location_name = notification.get("locationName", "Location Unknown")  # Get location name if it exists
+    critical_level = notification["criticalLevel"]
+
+    # Construct the notification message
+    title = f"Critical Weather Alert: {phenomenon.capitalize()}"
+    body = f"Level: {critical_level}, Location: {location_name}"
+
+    # Retrieve user tokens (Consider storing user tokens in a more optimized way for real-world scenarios)
+    user_tokens = db.reference("tokens").get() or {}
+    user_tokens = list(user_tokens.values())
+
+    # Prepare the messages for Firebase Cloud Messaging
+    messages = [
+        messaging.Message(
+            notification=messaging.Notification(title=title, body=body),
+            token=token
+        )
+        for token in user_tokens
+    ]
+
+    # Send the notifications to all users
+    response = messaging.send_all(messages)
+    print(f'{response.success_count} messages were sent successfully')
