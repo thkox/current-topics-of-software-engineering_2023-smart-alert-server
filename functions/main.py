@@ -334,12 +334,15 @@ def send_notification_to_users(event):
         location_bounds = notification["locationBounds"]  # Get location bounds
 
         # Construct the notification message
-        title = f"Critical Weather Alert: {phenomenon.capitalize()}"
-        body = f"Level: {critical_level}, Location: {location_name}"
+        title = ""
+        body = ""
 
         # Additional data to include in the notification payload
         additional_data = {
-            "locationBounds": json.dumps(location_bounds)  # Convert the dictionary to a JSON-formatted string
+            "locationBounds": json.dumps(location_bounds),  # Convert the dictionary to a JSON-formatted string
+            "weatherPhenomenon": json.dumps(phenomenon),
+            "criticalLevel": json.dumps(critical_level),
+            "locationName": json.dumps(location_name)
         }
 
         # Retrieve user tokens (Consider storing user tokens in a more optimized way for real-world scenarios)
