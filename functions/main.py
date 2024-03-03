@@ -230,7 +230,7 @@ def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
     try:
         # Get the phenomenon and location from the request
         phenomenon = req.data.get("phenomenon", "")
-        place = req.data.get("place", "")
+        location_id = req.data.get("location_id", "")
 
         # Fetch all alert categories (phenomena)
         phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
@@ -238,12 +238,12 @@ def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
         # Check if the phenomenon exists
         if phenomenon in phenomena:
             # Check if the place exists for the phenomenon
-            if place in phenomena[phenomenon]:
+            if location_id in phenomena[phenomenon]:
                 # Delete the alerts for the phenomenon and place
-                db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place}").delete()
+                db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{location_id}").delete()
 
                 # Delete the counter
-                db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}").delete()
+                db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{location_id}").delete()
 
                 return {'success': True}
             else:
@@ -263,8 +263,8 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
     try:
         # Get the phenomenon, location, and alertID from the request
         phenomenon = req.data.get("phenomenon", "")
-        place = req.data.get("place", "")
-        alert_id = req.data.get("alertID", "")
+        location_id = req.data.get("location_id", "")
+        alert_id = req.data.get("alert_id", "")
 
         # Fetch all alert categories (phenomena)
         phenomena = db.reference("alertsByPhenomenonAndLocationLast6h").get() or {}
@@ -272,18 +272,22 @@ def delete_alert_by_phenomenon_and_location(req: https_fn.CallableRequest) -> An
         # Check if the phenomenon exists
         if phenomenon in phenomena:
             # Check if the place exists for the phenomenon
-            if place in phenomena[phenomenon]:
+            if location_id in phenomena[phenomenon]:
                 # Check if the alertID exists for the phenomenon and place
-                if alert_id in phenomena[phenomenon][place]:
+                if alert_id in phenomena[phenomenon][location_id]["alertForms"]:
                     # Delete the specific alert for the phenomenon, place, and alertID
-                    db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place}/{alert_id}").delete()
+                    db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{location_id}/alertForms/{alert_id}").delete()
+
+                    print(f"Deleted alert {alert_id} from {phenomenon}/{location_id}")
 
                     # Decrement the counter
-                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}")
+                    counter_ref = db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{location_id}/counter")
                     counter = counter_ref.get() or 0
                     counter = max(0, counter - 1)
                     if counter == 0:
-                        db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place}").delete()
+                        db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{location_id}").delete()
+
+                        print(f"Deleted counter for {phenomenon}/{location_id}")
                     else:
                         counter_ref.set(counter)
 
