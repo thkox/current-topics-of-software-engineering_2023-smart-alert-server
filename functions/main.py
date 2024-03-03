@@ -189,31 +189,32 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
     num_of_deleted_alerts = 0
 
     for phenomenon, places in phenomena.items():
-        for place_id, place_data in places.items():
+        for location_id, place_data in places.items():
             if 'alertForms' in place_data:  # Check if alertForms exist
 
                 # Iterate through alertForms for deletion
                 for alert_id, alert_data in place_data['alertForms'].items():
                     if alert_data['timestamp'] < current_timestamp - 21600000:  # Check if older than 24 hours
                         num_of_deleted_alerts += 1
-                        logging.info(f"Deleting alert {alert_id} from {phenomenon}/{place_id}")
+                        logging.info(f"Deleting alert {alert_id} from {phenomenon}/{location_id}")
                         db.reference(
-                            f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}/alertForms/{alert_id}").delete()
+                            f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{location_id}/alertForms/{alert_id}").delete()
 
                         # Decrement counter
                         counter_ref = db.reference(
-                            f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}/counter")
+                            f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{location_id}/counter")
                         counter = counter_ref.get() or 0
                         counter = max(0, counter - 1)  # Ensure counter doesn't go negative
                         counter_ref.set(counter)  # Update the counter
 
-                        # Delete place in the phenomenon if no more alerts
-                        if not place_data.get('alertForms'):  # Check if all alerts are deleted
-                            db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{place_id}").delete()
+                # Check if all alerts are deleted after deletion
+                place_data = db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{location_id}").get()
+                if 'alertForms' not in place_data or not place_data['alertForms']:
+                    db.reference(f"alertsByPhenomenonAndLocationLast6h/{phenomenon}/{location_id}").delete()
 
-                        # Delete the counter
-                        if counter == 0:
-                            db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{place_id}").delete()
+                    # Delete the counter
+                    if counter == 0:
+                        db.reference(f"alertsByPhenomenonAndLocationCountLast6h/{phenomenon}/{location_id}").delete()
 
     # Update timestamps
     db.reference("lastCleanupTimestamp").set(current_timestamp)
@@ -221,7 +222,6 @@ def hourly_cleanup_http(req: https_fn.Request) -> Any:
 
     logging.info(f"Cleanup completed. Deleted {num_of_deleted_alerts} alerts.")
     return 'Cleanup completed', 200
-
 
 @https_fn.on_call()
 def delete_alerts_by_location(req: https_fn.CallableRequest) -> Any:
