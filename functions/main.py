@@ -57,7 +57,7 @@ def get_location_name_and_bounds(latitude, longitude):
         ValueError: If the geocoding fails or if the response lacks necessary data.
     """
 
-    api_key = "AIzaSyBM31FS8qWSsNewQM5NGzpYm7pdr8q5azY"  # Replace with your actual API key
+    api_key = "API_KEY_GC"  # Replace with your actual API key
 
     response = requests.get(
         f"https://maps.googleapis.com/maps/api/geocode/json?latlng={latitude},{longitude}&key={api_key}"
