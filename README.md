@@ -1,4 +1,4 @@
-# Current Topics of Software Engineering (2024) - Smart Alert Server
+# Current Topics of Software Engineering (2024) - Smart Alert Backend
 
 ## Project Overview
 
