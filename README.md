@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-The Smart Alert Backend is the core system that processes emergency reports and manages notifications for the Smart Alert mobile app. It is designed to collect reports from users, rank incidents based on severity and user proximity, and push location-based alerts to citizens using Firebase Cloud Messaging (FCM). The backend uses Google Cloud services to ensure scalability and reliability in real-time data processing and communication during emergencies.
+The **Smart Alert Backend** is a team assignment designed as the core system that powers the [Smart Alert Android App](https://github.com/thkox/current-topics-of-software-engineering_2023-smart-alert), developed for the "Current Topics of Software Engineering - Mobile Software" course, offered in the 7th semester of the 2023-2024 academic year at the University of Piraeus, Department of Informatics. The backend handles emergency reports submitted by users, ranks incidents based on severity and proximity, and sends location-based alerts to citizens in real-time using Firebase Cloud Messaging (FCM).
 
-This project was developed as part of the 7th-semester coursework for the "Modern Topics in Software Technology - Mobile Software" class at the University of Piraeus, Department of Informatics (Academic Year 2023-2024).
+The backend ensures the scalability and reliability of the Smart Alert system, enabling real-time data processing and communication during emergencies. It integrates with the mobile app to deliver notifications, manage user data, and facilitate incident validation by employees (civil protection role).
 
 ## Course Information
 
@@ -24,26 +24,26 @@ This project was developed as part of the 7th-semester coursework for the "Moder
 
 ## Features
 
-1. **Real-Time Incident Management**
+### 1. Real-Time Incident Management
 
-    The backend processes emergency reports submitted by users through the Smart Alert app. It evaluates the severity of each incident based on:
-   
-    - The number of reports submitted for a given incident.
-    - The proximity of the reports in terms of geographic location and time.
+The backend processes emergency reports submitted by users through the Smart Alert app. It evaluates the severity of each incident based on:
 
-2. **Automated User Notification**
+- The number of reports submitted for a given incident.
+- The proximity of the reports in terms of geographic location and time.
 
-    If an incident is verified by the employee (civil protection role), the backend triggers an alert to users within a defined radius using Firebase Cloud Messaging. The notification includes details such as the event type, location, timestamp, and safety instructions.
+### 2. Automated User Notification
 
-3. **Incident Ranking and Prioritization**
+Once an incident is verified by an employee (civil protection role), the backend triggers an alert to users within a defined radius using Firebase Cloud Messaging (FCM). The notification includes essential information such as event type, location, timestamp, and safety instructions.
 
-    - The system ranks incidents based on how many reports are submitted and how close they are in time and space.
-    - These rankings help employees decide which incidents to approve and notify nearby citizens about.
+### 3. Incident Ranking and Prioritization
 
-4. **Cloud Functionality**
+- The system ranks incidents based on how many reports are submitted and their geographic and time proximity.
+- Incident rankings help employees decide which reports to approve and notify nearby citizens about.
 
-    - **Cloud Functions:** Triggered automatically when new incident reports are submitted, the backend processes and categorizes reports for further action.
-    - **Google Cloud Scheduler:** Manages periodic tasks like sending reminders or handling time-based checks for expired incident reports.
+### 4. Cloud Functionality
+
+- **Cloud Functions:** Automatically triggered when new incident reports are submitted, allowing the backend to process and categorize the reports for further action.
+- **Google Cloud Scheduler:** Manages periodic tasks, such as sending reminders or handling time-based checks for expired incident reports.
 
 ## Setup Instructions
 
@@ -64,10 +64,9 @@ This project was developed as part of the 7th-semester coursework for the "Moder
     firebase deploy --only functions
     ```
 
-## Related Repositories
-[Smart Alert Mobile App](https://github.com/thkox/smart-alert)
+## Documentation and Resources
 
-The Smart Alert Android App is the user-facing component of the Smart Alert system. It allows citizens to report high-risk incidents, receive real-time notifications, and manage their account settings. The app communicates with this backend to process incident reports, manage user authentication, and send notifications through Firebase Cloud Messaging. Together, the app and backend form a complete system for real-time emergency response.
+- Full project details can be found in the [Project-documentation.pdf](./docs/Project-documentation.pdf).
 
 ## Contributors
 
