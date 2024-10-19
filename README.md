@@ -7,9 +7,8 @@ The **Smart Alert Backend** is a team assignment designed as the core system tha
 The backend ensures the scalability and reliability of the Smart Alert system, enabling real-time data processing and communication during emergencies. It integrates with the mobile app to deliver notifications, manage user data, and facilitate incident validation by employees (civil protection role).
 
 ## Course Information
-
-- **Institution:** University of Piraeus
-- **Department:** Department of Informatics
+- **Institution:** [University of Piraeus](https://www.unipi.gr/en/)
+- **Department:** [Department of Informatics](https://cs.unipi.gr/en/)
 - **Course:** Current Topics of Software Engineering (2024)
 - **Semester:** 7th
 
